@@ -1,45 +1,70 @@
 package org.example;
 
-import org.apache.zookeeper.WatchedEvent;
-import org.apache.zookeeper.Watcher;
-import org.apache.zookeeper.ZooKeeper;
+import org.apache.zookeeper.*;
+import org.apache.zookeeper.data.Stat;
 
-import java.io.IOException;
+import java.util.Collections;
+import java.util.List;
 
 public class LeaderElection implements Watcher {
-    private static final String ZOOKEEPER_ADDRESS = "localhost:2181";
-    private static final int SESSION_TIMEOUT = 3000;
-    private ZooKeeper zookeeper;
+    private static final String ELECTION_NAMESPACE = "/election";
+    private static final String TARGET_ZNODE = "/target_znode";
+    private String currentZnodeName;
+    private final ZooKeeper zooKeeper;
+    private final OnElectionCallback onElectionCallback;
 
-    public static void main(String[] args) throws IOException, InterruptedException {
-        LeaderElection leaderElection = new LeaderElection();
-
-        leaderElection.connectToZookeeper();
-        leaderElection.run();
-        leaderElection.close();
-        System.out.println("Disconnected from Zookeeper, exiting application");
+    public LeaderElection(ZooKeeper zooKeeper, OnElectionCallback onElectionCallback) {
+        this.zooKeeper = zooKeeper;
+        this.onElectionCallback = onElectionCallback;
     }
 
-    /**
-     * 주키퍼 요청은 동기적으로 실행됨
-     *
-     */
-    public void connectToZookeeper() throws IOException {
-        this.zookeeper = new ZooKeeper(ZOOKEEPER_ADDRESS, SESSION_TIMEOUT, this);
+    public void volunteerForLeadership() throws InterruptedException, KeeperException {
+        String znodePrefix = ELECTION_NAMESPACE + "/c";
+        String znodeFullPath = zooKeeper.create(znodePrefix,
+                new byte[]{},
+                ZooDefs.Ids.OPEN_ACL_UNSAFE,
+                CreateMode.EPHEMERAL_SEQUENTIAL);
+
+        System.out.println("znodeFullPath = " + znodeFullPath);
+        this.currentZnodeName = znodeFullPath.replace(ELECTION_NAMESPACE + "/", "");
     }
 
-    /**
-     * 주키퍼는 이벤트 기반으로 동작하기 때문에 main 스레드를 대기 상태로 둠
-     * 주키퍼 서버가 주기적으로 PING을 보내 서버가 정상적으로 동작하고있는지 확인함
-     */
-    public void run() throws InterruptedException {
-        synchronized (zookeeper) {
-            zookeeper.wait();
+    public void reelectLeader() throws InterruptedException, KeeperException {
+        String predecessorZnodeName = "";
+        Stat predecessorStat = null;
+
+        while (predecessorStat == null) {
+            List<String> children = zooKeeper.getChildren(ELECTION_NAMESPACE, false);
+            Collections.sort(children);
+            String smallestChild = children.get(0);
+
+            if (smallestChild.equals(currentZnodeName)) {
+                System.out.println("I am the leader");
+                onElectionCallback.onElectedToBeLeader();
+                return;
+            } else {
+                System.out.println("I am not the leader");
+                int predecessorIndex = Collections.binarySearch(children, currentZnodeName) - 1;
+                predecessorZnodeName = children.get(predecessorIndex);
+                predecessorStat = zooKeeper.exists(ELECTION_NAMESPACE + "/" + predecessorZnodeName, this);
+            }
         }
+
+        onElectionCallback.onWorker();
+        System.out.println("Watching znode " + predecessorZnodeName);
+        System.out.println();
     }
 
-    public void close() throws InterruptedException {
-        zookeeper.close();
+    public void watchTargetZnode() throws InterruptedException, KeeperException {
+        Stat stat = zooKeeper.exists(TARGET_ZNODE, this);
+        if (stat == null) {
+            return;
+        }
+
+        byte[] data = zooKeeper.getData(TARGET_ZNODE, this, stat);
+        List<String> children = zooKeeper.getChildren(TARGET_ZNODE, this);
+
+        System.out.println("Data : " + new String(data) + " Children : " + children);
     }
 
     /**
@@ -48,15 +73,30 @@ public class LeaderElection implements Watcher {
     @Override
     public void process(WatchedEvent watchedEvent) {
         switch (watchedEvent.getType()) {
-            case None:
-                if (watchedEvent.getState() == Event.KeeperState.SyncConnected) {
-                    System.out.println("Successfully connected to Zookeeper");
-                } else {
-                    synchronized (zookeeper) {
-                        System.out.println("Disconnected from Zookeeper event");
-                        zookeeper.notifyAll();
-                    }
+
+            case NodeDeleted:
+                try {
+                    reelectLeader();
+                } catch (InterruptedException e) {
+                } catch (KeeperException e) {
                 }
+                System.out.println(TARGET_ZNODE + " was deleted");
+                break;
+            case NodeCreated:
+                System.out.println(TARGET_ZNODE + " was created");
+                break;
+            case NodeDataChanged:
+                System.out.println(TARGET_ZNODE + " data changed");
+                break;
+            case NodeChildrenChanged:
+                System.out.println(TARGET_ZNODE + " children changed");
+                break;
+        }
+
+        try {
+            watchTargetZnode();
+        } catch (InterruptedException e) {
+        } catch (KeeperException e) {
         }
     }
 }

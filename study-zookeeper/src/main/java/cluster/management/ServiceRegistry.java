@@ -1,4 +1,4 @@
-package org.example;
+package cluster.management;
 
 import org.apache.zookeeper.*;
 import org.apache.zookeeper.data.Stat;
@@ -8,12 +8,14 @@ import java.util.Collections;
 import java.util.List;
 
 public class ServiceRegistry implements Watcher {
+    public static final String WORKERS_REGISTRY_ZNODE = "/workers_registry_znode";
+    public static final String COORDINATORS_REGISTRY_ZNODE = "/coordinators_registry_znode";
     private static final String REGISTRY_ZONE = "/service_registry";
     private final ZooKeeper zooKeeper;
     private String currentZnode = null;
     private List<String> allServiceAddresses;
 
-    public ServiceRegistry(ZooKeeper zooKeeper) {
+    public ServiceRegistry(ZooKeeper zooKeeper, String workersRegistryZnode) {
         this.zooKeeper = zooKeeper;
     }
 
@@ -66,7 +68,7 @@ public class ServiceRegistry implements Watcher {
             throw new RuntimeException(e);
         }
     }
-    
+
     private synchronized void updateAddresses() throws InterruptedException, KeeperException {
         List<String> workerZnodes = zooKeeper.getChildren(REGISTRY_ZONE, this);
 

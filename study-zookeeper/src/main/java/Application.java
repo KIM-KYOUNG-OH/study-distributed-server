@@ -2,9 +2,9 @@ import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.WatchedEvent;
 import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.ZooKeeper;
-import org.example.LeaderElection;
-import org.example.OnElectionCallback;
-import org.example.ServiceRegistry;
+import cluster.management.LeaderElection;
+import cluster.management.OnElectionCallback;
+import cluster.management.ServiceRegistry;
 
 import java.io.IOException;
 
@@ -17,12 +17,14 @@ public class Application implements Watcher {
     public static void main(String[] args) throws IOException, InterruptedException, KeeperException {
         // 이론상 서버가 다를 경우 포트는 같아도 상관없지만 로컬에선 포트가 달라야하므로 추가
         int currentServerPort = args.length == 1 ? Integer.parseInt(args[0]) : DEFAULT_PORT;
+
         Application application = new Application();
         ZooKeeper zooKeeper = application.connectToZookeeper();
 
-        ServiceRegistry serviceRegistry = new ServiceRegistry(zooKeeper);
+        ServiceRegistry serviceRegistry = new ServiceRegistry(zooKeeper, ServiceRegistry.WORKERS_REGISTRY_ZNODE);
+        ServiceRegistry coordinatorsServiceRegistry = new ServiceRegistry(zooKeeper, ServiceRegistry.COORDINATORS_REGISTRY_ZNODE);
 
-        OnElectionCallback onElectionCallback = new OnElectionAction(serviceRegistry, currentServerPort);
+        OnElectionCallback onElectionCallback = new OnElectionAction(serviceRegistry, coordinatorsServiceRegistry, currentServerPort);
 
         LeaderElection leaderElection = new LeaderElection(zooKeeper, onElectionCallback);
         leaderElection.volunteerForLeadership();

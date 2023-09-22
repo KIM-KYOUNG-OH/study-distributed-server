@@ -32,7 +32,7 @@
                 <configuration>
                     <archive>
                         <manifest>
-                            <mainClass>org.example.LeaderElection</mainClass>
+                            <mainClass>cluster.management.LeaderElection</mainClass>
                         </manifest>
                     </archive>
                     <descriptorRefs>

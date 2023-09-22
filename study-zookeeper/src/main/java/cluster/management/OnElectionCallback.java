@@ -1,4 +1,4 @@
-package org.example;
+package cluster.management;
 
 /**
  * 이벤트 기반
